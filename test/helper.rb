@@ -8,6 +8,7 @@ ENV["DRIVER"] ||= "ruby"
 
 require_relative "../lib/redis"
 require_relative "../lib/redis/distributed"
+require_relative "../lib/redis/cluster"
 require_relative "../lib/redis/connection/#{ENV["DRIVER"]}"
 
 require_relative "support/redis_mock"
@@ -19,10 +20,12 @@ NODES   = ["redis://127.0.0.1:#{PORT}/15"]
 
 def init(redis)
   begin
-    redis.select 14
-    redis.flushdb
-    redis.select 15
-    redis.flushdb
+    unless redis.is_a?(Redis::Cluster)
+      redis.select 14
+      redis.flushdb
+      redis.select 15
+      redis.flushdb
+    end
     redis
   rescue Redis::CannotConnectError
     puts <<-EOS
@@ -196,6 +199,27 @@ module Helper
 
     def _new_client(options = {})
       Redis::Distributed.new(NODES, _format_options(options).merge(:driver => ENV["conn"]))
+    end
+  end
+
+  module Cluster
+    include Generic
+
+    PORTS = (7000..7005).freeze
+    NODES = PORTS.map { |port| "redis://127.0.0.1:#{port}" }.freeze
+
+    def version
+      Version.new(redis.info['redis_version'])
+    end
+
+    private
+
+    def _format_options(options)
+      { timeout: OPTIONS[:timeout], logger: ::Logger.new(@log) }.merge(options)
+    end
+
+    def _new_client(options = {})
+      Redis::Cluster.new(NODES, _format_options(options).merge(driver: ENV['DRIVER']))
     end
   end
 end
